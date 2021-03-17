@@ -1,0 +1,11 @@
+[package]
+name = "modbus_uart"
+version = "0.1.0"
+authors = ["DDRDmakar <makarevich.98@mail.ru>"]
+edition = "2018"
+
+
+[dependencies]
+
+serialport = "4.0.0"
+structopt = "0.3"
