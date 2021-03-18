@@ -46,11 +46,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>>  {
 		}
 	};
 	
-	let port = serialport::new(port_name, opt.baudrate)
+	let mut port = serialport::new(port_name, opt.baudrate)
 		.timeout(Duration::from_millis(10))
 		.open().expect("Не удалось открыть порт");
 
+	let mut memory = vec![0_u8; 1024];
 	
+	let output = "This is a test. This is only a test.".as_bytes();
+	port.write(output).expect("Ошибка записи данных в порт");
 	
 	Ok(())
 }
