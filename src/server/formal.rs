@@ -26,9 +26,32 @@ pub fn crc(buf: &[u8]) -> u16 {
 	crc
 }
 
+const STR_UNKNOWN_F: &str = "Неизвестный код функции";
+
+pub fn get_func_len(buf: &Vec<u8>, pos: usize) -> Result<usize, &'static str> {
+	if pos < 2 { return Ok(usize::MAX); }
+	let function = buf[1];
+	if function < 0x30 {
+		match FUNC_LEN[function as usize] {
+			usize::MAX => {
+				match function {
+					0x10 => { // Write multiple registers
+						if pos > 4 { Ok(buf[4] as usize) }
+						else       { Ok(usize::MAX) }
+					},
+					_ => Err(STR_UNKNOWN_F),
+				}
+			},
+			0 => Err(STR_UNKNOWN_F),
+			fixed => Ok(fixed),
+		}
+	} else { Err(STR_UNKNOWN_F) }
+}
+
 // Длина области данных для различных функций Modbus RTU.
-// Максимальное значение означает, что размер вычисляется динамически.
-pub const FUNC_LEN: [usize; 0x30] = [
+// usize::MAX - Размер вычисляется динамически.
+// 0 - Несуществующие функции.
+const FUNC_LEN: [usize; 0x30] = [
 	0, // 0x00
 	5, // 0x01 Read coils
 	5, // 0x02 Read discrete inputs
@@ -45,7 +68,7 @@ pub const FUNC_LEN: [usize; 0x30] = [
 	0, // 0x0D
 	0, // 0x0E
 	0, // 0x0F
-	0, // 0x10
+	usize::MAX, // 0x10 Write multiple registers
 	0, // 0x11
 	0, // 0x12
 	0, // 0x13

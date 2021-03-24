@@ -41,11 +41,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>>  {
 			for (i, p) in ports.iter().enumerate() {
 				eprintln!("\t{}: {}", i, p.port_name);
 			}
-			process::exit(1);
+			opt.port.as_str()
 		}
 	};
 	
-	let mut port = serialport::new(port_name, opt.baudrate)
+	let port = serialport::new(port_name, opt.baudrate)
 		.timeout(Duration::from_millis(1000))
 		.parity(serialport::Parity::None)
 		.open().expect("Не удалось открыть порт");
