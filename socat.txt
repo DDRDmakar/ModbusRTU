@@ -1,0 +1,7 @@
+Thanks to the link from @LatinSuD I got the solution. And even the explanation in the link said word by word:
+Creating pairs of virtual serial ports (VSP), is quite often wanted feature, yet it’s hard to find a solution online (try Googling it)…
+So I don't feel that dumb ;P
+
+socat -d -d pty,raw,echo=0 pty,raw,echo=0
+
+does the magic and creates two virtual devices which are connected to each other. Thank you very much
