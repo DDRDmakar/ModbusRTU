@@ -28,20 +28,20 @@ impl Server {
 			// Read coils
 			0x01 => {
 				println!("ReadCoils");
-				let offset    = BigEndian::read_u16(&self.query[2..4]);
-				let quantity  = BigEndian::read_u16(&self.query[4..6]);
+				let offset    = BigEndian::read_u16(&self.query[2..4]) as usize;
+				let quantity  = BigEndian::read_u16(&self.query[4..6]) as usize;
 				println!("offset:   {}", offset);
 				println!("quantity: {}", quantity);
 
 				if quantity == 0 || quantity > 2000 { return Err("Invalid quantity"); }
-				if offset + quantity >= (N_COILS as u16) { return Err("Index out of bounds"); }
+				if offset + quantity >= N_COILS { return Err("Index out of bounds"); }
 				
-				let n_coil_bytes = (quantity as f32 / 8_f32).ceil() as usize;
+				let n_bytes = (quantity as f32 / 8_f32).ceil() as usize;
 				
 				let mut odat = Vec::with_capacity(64);
 				odat.push(function);
-				odat.push(n_coil_bytes as u8);
-				self.pack_bits(&self.coils[offset as usize..(offset + quantity) as usize], &mut odat);
+				odat.push(n_bytes as u8);
+				self.pack_bits(&self.coils[offset..offset + quantity], &mut odat);
 				
 				return Ok(odat)
 			},
@@ -49,28 +49,43 @@ impl Server {
 			// Read discrete inputs
 			0x02 => {
 				println!("ReadDiscreteInputs");
-				Err("Not implemented yet")
+				let offset    = BigEndian::read_u16(&self.query[2..4]) as usize;
+				let quantity  = BigEndian::read_u16(&self.query[4..6]) as usize;
+				println!("offset:   {}", offset);
+				println!("quantity: {}", quantity);
+
+				if quantity == 0 || quantity > 2000 { return Err("Invalid quantity"); }
+				if offset + quantity >= N_DISCRETE_INPUTS { return Err("Index out of bounds"); }
+				
+				let n_bytes = (quantity as f32 / 8_f32).ceil() as usize;
+				
+				let mut odat = Vec::with_capacity(64);
+				odat.push(function);
+				odat.push(n_bytes as u8);
+				self.pack_bits(&self.discrete_input[offset..offset + quantity], &mut odat);
+				
+				return Ok(odat)
 			},
 			
 			// Read holding registers
 			0x03 => {
 				println!("ReadHoldingRegisters");
-				let offset    = BigEndian::read_u16(&self.query[2..4]);
-				let quantity  = BigEndian::read_u16(&self.query[4..6]);
+				let offset    = BigEndian::read_u16(&self.query[2..4]) as usize;
+				let quantity  = BigEndian::read_u16(&self.query[4..6]) as usize;
 				println!("offset:   {}", offset);
 				println!("quantity: {}", quantity);
 				let byte_count = quantity * 2;
 
 				if quantity == 0 || quantity > 125 { return Err("Invalid registers quantity"); }
-				if offset + quantity >= (N_HOLDING_REGISTERS as u16) { return Err("Index out of bounds"); }
+				if offset + quantity >= N_HOLDING_REGISTERS { return Err("Index out of bounds"); }
 				
 				let mut odat = Vec::with_capacity(64);
 				odat.push(function);
 				odat.push(byte_count as u8);
 				let tlen = odat.len();
-				odat.resize(tlen + byte_count as usize, 0);
+				odat.resize(tlen + byte_count, 0);
 				BigEndian::write_u16_into(
-					&self.holding_registers[(offset as usize)..((offset + quantity) as usize)],
+					&self.holding_registers[offset..offset + quantity],
 					&mut odat[tlen..]
 				);
 				return Ok(odat)
@@ -79,23 +94,23 @@ impl Server {
 			// Write multiple registers
 			0x10 => {
 				println!("WriteMultipleRegisters");
-				let offset = BigEndian::read_u16(&self.query[2..4]);
-				let quantity  = BigEndian::read_u16(&self.query[4..6]);
+				let offset    = BigEndian::read_u16(&self.query[2..4]) as usize;
+				let quantity  = BigEndian::read_u16(&self.query[4..6]) as usize;
 				println!("offset:   {}", offset);
 				println!("quantity: {}", quantity);
-				let byte_count = self.query[6];
+				let byte_count = self.query[6] as usize;
 
 				if quantity == 0 || quantity > 123 { return Err("Invalid registers quantity"); }				
-				if byte_count as u16 != quantity * 2      { return Err("Invalid byte count"); }
-				if offset + quantity >= (N_HOLDING_REGISTERS as u16) { return Err("Index out of bounds"); }
+				if byte_count != quantity * 2 { return Err("Invalid byte count"); }
+				if offset + quantity >= N_HOLDING_REGISTERS { return Err("Index out of bounds"); }
 				
 				let mut odat = Vec::with_capacity(64);
 				odat.push(function);
-				odat.extend(&offset.to_be_bytes());
-				odat.extend(&quantity.to_be_bytes());
+				odat.extend(&(offset as u16).to_be_bytes());
+				odat.extend(&(quantity as u16).to_be_bytes());
 				BigEndian::read_u16_into(
-					&self.query[7..(7 + byte_count as usize)],
-					&mut self.holding_registers[offset as usize .. (offset + quantity) as usize]
+					&self.query[7..7 + byte_count],
+					&mut self.holding_registers[offset..offset + quantity]
 				);
 				return Ok(odat)
 			},
@@ -105,11 +120,12 @@ impl Server {
 		} // End match
 	} // End fn
 
-	fn pack_bits(&self, src: & [u8], dst: &mut Vec<u8>) {
+	fn pack_bits(&self, src: &[u8], dst: &mut Vec<u8>) {
 		let mut val: u8 = 0;
 		for (i, &e) in src.iter().enumerate() {
-			val = (val << 1) | e;
-			if i % 8 == 7 {
+			let mod8 = i % 8;
+			val |= e << mod8;
+			if mod8 == 7 {
 				dst.push(val);
 				val = 0u8;
 			}
