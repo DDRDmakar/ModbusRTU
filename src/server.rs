@@ -18,21 +18,29 @@ use crate::server::formal::{ crc, get_func_len };
 mod process;
 
 pub struct Server {
-	port:   Box<dyn SerialPort>,
-	memory: Vec<u8>,
-	query:  Vec<u8>,
+	port:              Box<dyn SerialPort>,
+	discrete_input:    Vec<u8>,
+	coils:             Vec<u8>,
+	input_registers:   Vec<u16>,
+	holding_registers: Vec<u16>,
+	query:             Vec<u8>,
 }
 
-const MEM_SIZE: usize    = 1024;
-const IN_BUF_SIZE: usize = 256;
+pub const N_DISCRETE_INPUTS:   usize = 1024;
+pub const N_COILS:             usize = 1024;
+pub const N_INPUT_REGISTERS:   usize = 1024;
+pub const N_HOLDING_REGISTERS: usize = 1024;
+pub const IN_BUF_SIZE:         usize = 256;
 
 impl Server {
-	
 	pub fn new(p: Box<dyn SerialPort>) -> Server {
 		Server {
-			port:   p,
-			memory: vec![1u8; MEM_SIZE],
-			query:  vec![0u8; IN_BUF_SIZE],
+			port:              p,
+			discrete_input:    vec![0; N_DISCRETE_INPUTS],
+			coils:             vec![0; N_COILS],
+			input_registers:   vec![0; N_INPUT_REGISTERS],
+			holding_registers: vec![0; N_HOLDING_REGISTERS],
+			query:             vec![0; IN_BUF_SIZE],
 		}
 	}
 
@@ -41,7 +49,6 @@ impl Server {
 		let mut ostream = BufWriter::new(self.port.try_clone()?);
 		let mut func_len = IN_BUF_SIZE;
 		
-		// Обработка PDU (Protocol data init)
 		loop {
 			// TODO read with 'take'
 			match self.port.read(&mut self.query.as_mut_slice()[pos..]) {

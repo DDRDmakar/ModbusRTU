@@ -6,7 +6,6 @@
 // Простой сервер Modbus RTU
 //------------------------------------------------------------------------------
 use std::path::PathBuf;
-use std::process;
 use std::time::Duration;
 
 use structopt::StructOpt;
@@ -36,14 +35,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>>  {
 	let port_name = match ports.iter().find(|p| p.port_name == opt.port) {
 		Some(p) => p.port_name.as_str(),
 		None    => {
-			eprintln!("Последовательный порт \"{}\" не найден.", opt.port);
+			eprintln!("Внимание! Последовательный порт \"{}\" не найден.", opt.port);
 			eprintln!("Список существующих:");
-			for (i, p) in ports.iter().enumerate() {
-				eprintln!("\t{}: {}", i, p.port_name);
+			if ports.len() > 0 {
+				for (i, p) in ports.iter().enumerate() {
+					eprintln!("\t{}: {}", i, p.port_name);
+				}
 			}
+			else { eprintln!("[портов не найдено]"); }
 			opt.port.as_str()
-		}
+		},
 	};
+
+	println!("Выбрано имя порта: {}", port_name);
 	
 	let port = serialport::new(port_name, opt.baudrate)
 		.timeout(Duration::from_millis(1000))
