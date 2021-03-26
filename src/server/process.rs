@@ -91,6 +91,30 @@ impl Server {
 				return Ok(odat)
 			},
 
+			// Read input registers
+			0x04 => {
+				println!("ReadInputRegisters");
+				let offset    = BigEndian::read_u16(&self.query[2..4]) as usize;
+				let quantity  = BigEndian::read_u16(&self.query[4..6]) as usize;
+				println!("offset:   {}", offset);
+				println!("quantity: {}", quantity);
+				let byte_count = quantity * 2;
+
+				if quantity == 0 || quantity > 125 { return Err("Invalid registers quantity"); }
+				if offset + quantity >= N_INPUT_REGISTERS { return Err("Index out of bounds"); }
+				
+				let mut odat = Vec::with_capacity(64);
+				odat.push(function);
+				odat.push(byte_count as u8);
+				let tlen = odat.len();
+				odat.resize(tlen + byte_count, 0);
+				BigEndian::write_u16_into(
+					&self.input_registers[offset..offset + quantity],
+					&mut odat[tlen..]
+				);
+				return Ok(odat)
+			},
+
 			// Write multiple registers
 			0x10 => {
 				println!("WriteMultipleRegisters");
