@@ -22,36 +22,36 @@ pub fn crc(buf: &[u8]) -> u16 {
 			}
 		}
 	}
-	// Внимание! Порядок байтов в crc - little-endian
+	// Внимание! Порядок байтов в crc может не сответствовать Modbus
 	crc
 }
 
-const STR_UNKNOWN_F: &str = "Неизвестный код функции";
+#[derive(FromPrimitive)]
+pub enum MbFunc {
+	READ_COILS               = 0x01,
+	READ_DISCRETE_INPUTS     = 0x02,
+	READ_HOLDING_REGISTERS   = 0x03,
+	READ_INPUT_REGISTERS     = 0x04,
+	WRITE_MULTIPLE_REGISTERS = 0x10,
+}
 
-pub fn get_func_len(buf: &Vec<u8>, pos: usize) -> Result<usize, &'static str> {
-	if pos < 2 { return Ok(usize::MAX); }
-	let function = buf[1];
-	if function < 0x30 {
-		match FUNC_LEN[function as usize] {
-			usize::MAX => {
-				match function {
-					0x10 => { // Write multiple registers
-						if pos > 4 { Ok(buf[4] as usize) }
-						else       { Ok(usize::MAX) }
-					},
-					_ => Err(STR_UNKNOWN_F),
-				}
-			},
-			0 => Err(STR_UNKNOWN_F),
-			fixed => Ok(fixed),
-		}
-	} else { Err(STR_UNKNOWN_F) }
+#[derive(FromPrimitive)]
+pub enum MbExc {
+	ILLEGAL_FUNCTION     = 1,
+	ILLEGAL_DATA_ADDRESS = 2,
+	ILLEGAL_DATA_VALUE   = 3,
+	SLAVE_DEVICE_FAILURE = 4,
+	ACKNOWLEDGE          = 5,
+	SLAVE_DEVICE_BUSY    = 6,
+	MEMORY_PARITY_ERROR  = 8,
+	GATEWAY_PATH_UNAVAILABLE = 0xA,
+	GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND = 0xB,
 }
 
 // Длина области данных для различных функций Modbus RTU.
 // usize::MAX - Размер вычисляется динамически.
 // 0 - Несуществующие функции.
-const FUNC_LEN: [usize; 0x30] = [
+pub const QUERY_LEN: [usize; 0x30] = [
 	0, // 0x00
 	5, // 0x01 Read coils
 	5, // 0x02 Read discrete inputs
@@ -101,3 +101,8 @@ const FUNC_LEN: [usize; 0x30] = [
 	0, // 0x2E
 	0, // 0x2F
 ];
+
+pub enum MbErr {
+	UnknownFunctionCode (&'static str),
+	WrongBranch         (&'static str),
+}

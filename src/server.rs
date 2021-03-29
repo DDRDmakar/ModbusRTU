@@ -11,10 +11,10 @@ use std::io::Write;
 
 use serialport;
 use serialport::SerialPort;
+use byteorder::{ ByteOrder, BigEndian, LittleEndian };
 
 mod formal;
-use crate::server::formal::{ crc, get_func_len };
-
+use crate::server::formal::{ crc, MbFunc, MbExc, MbErr, QUERY_LEN };
 mod process;
 
 pub struct Server {
@@ -24,6 +24,9 @@ pub struct Server {
 	input_registers:   Vec<u16>,
 	holding_registers: Vec<u16>,
 	query:             Vec<u8>,
+	pos:       usize,
+	query_len: usize,
+	//ostream:   &BufWriter<SerialPort>,
 }
 
 pub const N_DISCRETE_INPUTS:   usize = 1024;
@@ -41,78 +44,127 @@ impl Server {
 			input_registers:   vec![0; N_INPUT_REGISTERS],
 			holding_registers: vec![0; N_HOLDING_REGISTERS],
 			query:             vec![0; IN_BUF_SIZE],
+			//ostream:   BufWriter::new(p.try_clone()?),
+			query_len: usize::MAX, // Недостаточно данных, чтобы определить длину пакета
+			pos:       0,
 		}
 	}
 
 	pub fn start(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-		let mut pos: usize = 0;
 		let mut ostream = BufWriter::new(self.port.try_clone()?);
-		let mut func_len = IN_BUF_SIZE;
-		
 		loop {
 			// TODO read with 'take'
-			match self.port.read(&mut self.query.as_mut_slice()[pos..]) {
+			match self.port.read(&mut self.query.as_mut_slice()[self.pos..]) {
 				Err(e) => {
 					println!("Ожидание, {}", e);
-					pos = 0;
+					self.pos = 0;
 					continue;
 				},
 				Ok(n) => {
 					println!("{} байт получено", n);
-					if pos == 0 { func_len = IN_BUF_SIZE; }
-					if pos == IN_BUF_SIZE {
+					if self.pos == 0 { self.query_len = usize::MAX; }
+					if self.pos == IN_BUF_SIZE {
+						// Если принято больше IN_BUF_SIZE байт, то в итоге pos всё равно будет == IN_BUF_SIZE
+						// Поэтому pos == IN_BUF_SIZE до инкремента pos - признак переполнения буфера
 						eprintln!("Приёмный буфер переполнен");
-						println!("{:?}", self.query);
-						pos = 0;
+						dbg!(&self.query);
+						self.pos = 0;
 						continue;
 					}
-					pos += n;
-					if pos >= 2 {
+					self.pos += n;
+					if self.pos >= 2 {
 						let slave_id = self.query[0];
 						let function = self.query[1];
-						println!("slave id: {}", slave_id); // DEBUG
-						println!("function: {}", function); // DEBUG
+						dbg!(slave_id);
+						dbg!(function);
 
-						if func_len == IN_BUF_SIZE {
-							match get_func_len(&self.query, pos.clone()) {
-								Ok(usize::MAX) => func_len = IN_BUF_SIZE, // Недостаточно байт, чтобы понять длину
-								Ok(l)          => func_len = l,           // Длина в байтах
-								Err(what) => {                            // Ошибка
+						// Определение длины сообщения
+						if self.query_len == usize::MAX {
+							match self.get_query_len() {
+								Ok(l) => self.query_len = l,
+								Err(MbErr::UnknownFunctionCode(what)) => {
 									eprintln!("Ошибка: {}. Запрос проигнорирован.", what);
-									pos = 0;
+									self.pos = 0;
+									continue;
+								},
+								Err(MbErr::WrongBranch(what)) => {
+									eprintln!("Ошибка: {}. Запрос проигнорирован.", what);
+									self.pos = 0;
 									continue;
 								},
 							}
 						}
+						dbg!(self.query_len);
+						
+						if self.pos >= self.query_len {
+							dbg!(&self.query[0..]);
 
-						println!("func len: {}", func_len); // DEBUG
-						// Проверка, набралась ли в буфере полная длина запроса
-						// + 1 - slave id
-						// + 2 - crc
-						if pos >= (func_len + 1 + 2) {
-							println!("{:?}", self.query[0..pos].to_vec());
-							ostream.write(&[slave_id]).unwrap();
-							match self.process(pos) {
+							// Check CRC
+							let crc_rx: u16 = LittleEndian::read_u16(&self.query[self.query_len - 2..self.query_len]);
+							let crc_calc = crc(&self.query[..self.query_len - 2]);
+							dbg!(crc_rx);
+							dbg!(crc_calc);
+							if crc_rx != crc_calc {
+								eprintln!("Ошибка CRC. Запрос проигнорирован.");
+								self.pos = 0;
+								continue;
+							}
+							
+							ostream.write(&[slave_id, function]).unwrap();
+							match self.process_function_code() {
 								Ok(data) => { ostream.write_all(data.as_slice()).unwrap(); },
-								Err(what) => {
-									eprintln!("Ошибка: {}. Запрос проигнорирован.", what);
-									pos = 0;
-									continue;
-								},
+								Err(what) => { eprintln!("Ошибка: {}. Запрос проигнорирован.", what); },
 							}
-							pos = 0;
+							if self.pos > self.query_len {
+								// Копирует байты следующего запроса в начало буфера
+								self.query.copy_within(self.query_len..self.pos, 0);
+								self.pos -= self.query_len;
+								self.query_len = usize::MAX;
+								continue;
+							}
+							else {
+								self.pos = 0;
+								continue;
+							}
 						}
-						else { continue; }
 					}
-					else { continue; }
 				},
 			}
 			let crc_tx = crc(ostream.buffer());
-			ostream.write_all(&crc_tx.to_le_bytes()).unwrap();
+			ostream.write(&crc_tx.to_le_bytes()).unwrap();
+			dbg!(&ostream.buffer());
 			// Запись в последовательный порт
-			println!("{:?}", ostream.buffer());
 			ostream.flush().unwrap();
 		}
 		Ok(())
+	}
+
+	// TODO нормальный возврат ошибки
+	
+	// Вычисление длины запроса, если её не получается определить по куду функции
+	// Здесь к длине прибавляется 3 (+1+2)
+	// +1 - длина device id
+	// +2 - длина CRC
+	fn get_query_len(&self) -> Result<usize, MbErr> {
+		const STR_UNKNOWN_F: &str = "Неизвестный код функции";
+		if self.pos < 2 { return Ok(usize::MAX); }
+		let function: u8 = self.query[1];
+		if (function as usize) < QUERY_LEN.len() {
+			match QUERY_LEN[function as usize] {
+				usize::MAX => {
+					let function_enum = num::FromPrimitive::from_u8(function);
+					match function_enum {
+						Some(MbFunc::WRITE_MULTIPLE_REGISTERS) => {
+							if self.pos > 6 { Ok((self.query[6] + 6 + 1 + 2) as usize) }
+							else            { Ok(usize::MAX) }
+						},
+						Some(_) => Err(MbErr::WrongBranch("Попытка вычислить длину сообщения со статической длиной")),
+						None => Err(MbErr::UnknownFunctionCode(STR_UNKNOWN_F)),
+					}
+				},
+				0 => Err(MbErr::UnknownFunctionCode(STR_UNKNOWN_F)),
+				fixed => Ok(fixed),
+			}
+		} else { Err(MbErr::UnknownFunctionCode(STR_UNKNOWN_F)) }
 	}
 }

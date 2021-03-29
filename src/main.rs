@@ -12,6 +12,10 @@ use structopt::StructOpt;
 
 mod server;
 
+extern crate num;
+#[macro_use]
+extern crate num_derive;
+
 #[derive(Debug, StructOpt)]
 #[structopt(name = "Modbus RTU", about = "parameters")]
 struct Opt {
@@ -28,7 +32,7 @@ struct Opt {
 
 fn main() -> Result<(), Box<dyn std::error::Error>>  {
 	let opt = Opt::from_args();
-	//println!("{:#?}", opt);
+	dbg!(&opt);
 	
 	let ports = serialport::available_ports().expect("В системе не обнаружено последовательных портов");
 

@@ -8,25 +8,16 @@
 //------------------------------------------------------------------------------
 use byteorder::{ ByteOrder, BigEndian, LittleEndian };
 
-use crate::server::formal::{ crc };
 use crate::server::Server;
-use crate::server:: { N_DISCRETE_INPUTS, N_COILS, N_INPUT_REGISTERS, N_HOLDING_REGISTERS, IN_BUF_SIZE };
+use crate::server::{ N_DISCRETE_INPUTS, N_COILS, N_INPUT_REGISTERS, N_HOLDING_REGISTERS, IN_BUF_SIZE };
+use crate::server::formal::{ MbFunc, MbExc };
 
 impl Server {
-	pub(super) fn process(&mut self, query_len: usize) -> Result<Vec<u8>, &'static str> {
-		let function  = self.query[1];
-		let crc_rx: u16 = LittleEndian::read_u16(&self.query[query_len-2..query_len]);
-		println!("function: {}", function);
-		println!("received crc:   {}", crc_rx);
-
-		// Check CRC
-		let crc_calc = crc(&self.query[..query_len-2]);
-		println!("calculated crc: {}", crc_calc);
-		if crc_rx != crc_calc { return Err("Invalid CRC"); }
-		
-		match function { // TODO return error packets
-			// Read coils
-			0x01 => {
+	pub(super) fn process_function_code(&mut self) -> Result<Vec<u8>, &'static str> {
+		let function: u8 = self.query[1];
+		let function_enum = num::FromPrimitive::from_u8(function);
+		match function_enum { // TODO return error packets
+			Some(MbFunc::READ_COILS) => {
 				println!("ReadCoils");
 				let offset    = BigEndian::read_u16(&self.query[2..4]) as usize;
 				let quantity  = BigEndian::read_u16(&self.query[4..6]) as usize;
@@ -39,15 +30,13 @@ impl Server {
 				let n_bytes = (quantity as f32 / 8_f32).ceil() as usize;
 				
 				let mut odat = Vec::with_capacity(64);
-				odat.push(function);
 				odat.push(n_bytes as u8);
 				self.pack_bits(&self.coils[offset..offset + quantity], &mut odat);
 				
 				return Ok(odat)
 			},
 			
-			// Read discrete inputs
-			0x02 => {
+			Some(MbFunc::READ_DISCRETE_INPUTS) => {
 				println!("ReadDiscreteInputs");
 				let offset    = BigEndian::read_u16(&self.query[2..4]) as usize;
 				let quantity  = BigEndian::read_u16(&self.query[4..6]) as usize;
@@ -60,15 +49,13 @@ impl Server {
 				let n_bytes = (quantity as f32 / 8_f32).ceil() as usize;
 				
 				let mut odat = Vec::with_capacity(64);
-				odat.push(function);
 				odat.push(n_bytes as u8);
 				self.pack_bits(&self.discrete_input[offset..offset + quantity], &mut odat);
 				
 				return Ok(odat)
 			},
 			
-			// Read holding registers
-			0x03 => {
+			Some(MbFunc::READ_HOLDING_REGISTERS) => {
 				println!("ReadHoldingRegisters");
 				let offset    = BigEndian::read_u16(&self.query[2..4]) as usize;
 				let quantity  = BigEndian::read_u16(&self.query[4..6]) as usize;
@@ -80,7 +67,6 @@ impl Server {
 				if offset + quantity >= N_HOLDING_REGISTERS { return Err("Index out of bounds"); }
 				
 				let mut odat = Vec::with_capacity(64);
-				odat.push(function);
 				odat.push(byte_count as u8);
 				let tlen = odat.len();
 				odat.resize(tlen + byte_count, 0);
@@ -91,8 +77,7 @@ impl Server {
 				return Ok(odat)
 			},
 
-			// Read input registers
-			0x04 => {
+			Some(MbFunc::READ_INPUT_REGISTERS) => {
 				println!("ReadInputRegisters");
 				let offset    = BigEndian::read_u16(&self.query[2..4]) as usize;
 				let quantity  = BigEndian::read_u16(&self.query[4..6]) as usize;
@@ -104,7 +89,6 @@ impl Server {
 				if offset + quantity >= N_INPUT_REGISTERS { return Err("Index out of bounds"); }
 				
 				let mut odat = Vec::with_capacity(64);
-				odat.push(function);
 				odat.push(byte_count as u8);
 				let tlen = odat.len();
 				odat.resize(tlen + byte_count, 0);
@@ -115,8 +99,7 @@ impl Server {
 				return Ok(odat)
 			},
 
-			// Write multiple registers
-			0x10 => {
+			Some(MbFunc::WRITE_MULTIPLE_REGISTERS) => {
 				println!("WriteMultipleRegisters");
 				let offset    = BigEndian::read_u16(&self.query[2..4]) as usize;
 				let quantity  = BigEndian::read_u16(&self.query[4..6]) as usize;
@@ -129,7 +112,6 @@ impl Server {
 				if offset + quantity >= N_HOLDING_REGISTERS { return Err("Index out of bounds"); }
 				
 				let mut odat = Vec::with_capacity(64);
-				odat.push(function);
 				odat.extend(&(offset as u16).to_be_bytes());
 				odat.extend(&(quantity as u16).to_be_bytes());
 				BigEndian::read_u16_into(
@@ -139,7 +121,7 @@ impl Server {
 				return Ok(odat)
 			},
 
-			_ => { Err("Unknown modbus function code") }
+			None => { Err("Unknown modbus function code") }
 			
 		} // End match
 	} // End fn
