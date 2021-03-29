@@ -128,18 +128,8 @@ impl Server {
 			println!("TX {:?}", ostream.buffer());
 			// Запись в последовательный порт
 			ostream.flush().unwrap();
-			if self.pos > self.query_len {
-				// Копирует байты следующего запроса в начало буфера
-				// TODO эти байты будут учтены только после следующего считывания, надо исправить!
-				self.query.copy_within(self.query_len..self.pos, 0);
-				self.pos -= self.query_len;
-				self.query_len = usize::MAX;
-				continue;
-			}
-			else {
-				self.pos = 0;
-				continue;
-			}
+			self.pos = 0;
+			continue;
 		}
 		Ok(())
 	}
