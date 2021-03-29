@@ -1,7 +1,8 @@
 //------------------------------------------------------------------------------
-// author:	Nikita Makarevich
-// email:	nikita.makarevich@spbpu.com
+// author:	Nikita Makarevich (aka DDRDmakar)
+// email:	makarevich.98@mail.ru
 // 2021
+// This code is under MIT license (see LICENSE.txt)
 //------------------------------------------------------------------------------
 // Simple Modbus RTU server
 // Processing of query PDU (Protocol data init)
