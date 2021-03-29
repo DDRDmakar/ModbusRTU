@@ -26,6 +26,20 @@ pub fn crc(buf: &[u8]) -> u16 {
 	crc
 }
 
+// Упаковка байтов в биты для передачи через Modbus
+pub fn pack_bits(src: &[u8], dst: &mut Vec<u8>) {
+	let mut val: u8 = 0;
+	for (i, &e) in src.iter().enumerate() {
+		let mod8 = i % 8;
+		val |= e << mod8;
+		if mod8 == 7 {
+			dst.push(val);
+			val = 0u8;
+		}
+	}
+	if src.len() % 8 != 0 { dst.push(val); }
+}
+
 #[derive(FromPrimitive)]
 pub enum MbFunc {
 	READ_COILS               = 0x01,
@@ -46,6 +60,11 @@ pub enum MbExc {
 	MEMORY_PARITY_ERROR  = 8,
 	GATEWAY_PATH_UNAVAILABLE = 0xA,
 	GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND = 0xB,
+}
+
+pub enum MbErr {
+	UnknownFunctionCode (&'static str),
+	WrongBranch         (&'static str),
 }
 
 // Длина области данных для различных функций Modbus RTU.
@@ -102,7 +121,3 @@ pub const QUERY_LEN: [usize; 0x30] = [
 	0, // 0x2F
 ];
 
-pub enum MbErr {
-	UnknownFunctionCode (&'static str),
-	WrongBranch         (&'static str),
-}

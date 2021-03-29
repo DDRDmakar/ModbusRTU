@@ -54,7 +54,8 @@ impl Server {
 		let mut ostream = BufWriter::new(self.port.try_clone()?);
 		loop {
 			// TODO read with 'take'
-			match self.port.read(&mut self.query.as_mut_slice()[self.pos..]) {
+			let pos_read_to = if self.query_len == usize::MAX { self.pos + 1 } else { self.query_len };
+			match self.port.read(&mut self.query[self.pos..pos_read_to]) {
 				Err(e) => {
 					println!("Ожидание, {}", e);
 					self.pos = 0;
@@ -67,7 +68,7 @@ impl Server {
 						// Если принято больше IN_BUF_SIZE байт, то в итоге pos всё равно будет == IN_BUF_SIZE
 						// Поэтому pos == IN_BUF_SIZE до инкремента pos - признак переполнения буфера
 						eprintln!("Приёмный буфер переполнен");
-						dbg!(&self.query);
+						eprintln!("RX: {:?}", self.query);
 						self.pos = 0;
 						continue;
 					}
@@ -97,7 +98,7 @@ impl Server {
 						dbg!(self.query_len);
 						
 						if self.pos >= self.query_len {
-							dbg!(&self.query[0..]);
+							println!("RX {:?}", &self.query[..self.query_len]);
 
 							// Check CRC
 							let crc_rx: u16 = LittleEndian::read_u16(&self.query[self.query_len - 2..self.query_len]);
@@ -115,26 +116,29 @@ impl Server {
 								Ok(data) => { ostream.write_all(data.as_slice()).unwrap(); },
 								Err(what) => { eprintln!("Ошибка: {}. Запрос проигнорирован.", what); },
 							}
-							if self.pos > self.query_len {
-								// Копирует байты следующего запроса в начало буфера
-								self.query.copy_within(self.query_len..self.pos, 0);
-								self.pos -= self.query_len;
-								self.query_len = usize::MAX;
-								continue;
-							}
-							else {
-								self.pos = 0;
-								continue;
-							}
 						}
+						else { continue; }
 					}
+					else { continue; }
 				},
 			}
 			let crc_tx = crc(ostream.buffer());
 			ostream.write(&crc_tx.to_le_bytes()).unwrap();
-			dbg!(&ostream.buffer());
+			println!("TX {:?}", ostream.buffer());
 			// Запись в последовательный порт
 			ostream.flush().unwrap();
+			if self.pos > self.query_len {
+				// Копирует байты следующего запроса в начало буфера
+				// TODO эти байты будут учтены только после следующего считывания, надо исправить!
+				self.query.copy_within(self.query_len..self.pos, 0);
+				self.pos -= self.query_len;
+				self.query_len = usize::MAX;
+				continue;
+			}
+			else {
+				self.pos = 0;
+				continue;
+			}
 		}
 		Ok(())
 	}
@@ -163,7 +167,7 @@ impl Server {
 					}
 				},
 				0 => Err(MbErr::UnknownFunctionCode(STR_UNKNOWN_F)),
-				fixed => Ok(fixed),
+				fixed => Ok(fixed + 1 + 2),
 			}
 		} else { Err(MbErr::UnknownFunctionCode(STR_UNKNOWN_F)) }
 	}
