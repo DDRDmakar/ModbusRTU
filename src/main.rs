@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use structopt::StructOpt;
+use serialport::{ SerialPort, Parity };
 
 mod server;
 
@@ -27,8 +28,11 @@ struct Opt {
 	#[structopt(short, long)]
 	port: String,
 	/// Baud rate
-	#[structopt(short, long)]
+	#[structopt(short, long, default_value = "9600")]
 	baudrate: u32,
+	/// Serial port parity
+	#[structopt(long, default_value = "even")]
+	parity: String,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>>  {
@@ -51,16 +55,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>>  {
 			opt.port.as_str()
 		},
 	};
+	let parity = match opt.parity.to_lowercase().as_str() {
+		"even" => Parity::Even,
+		"odd"  => Parity::Odd,
+		"none" => Parity::None,
+		&_     => panic!("Неверно указана чётность. Используйте значения: Even, Odd и None.")
+	};
 
 	println!("Выбрано имя порта: {}", port_name);
-	
+
 	let port = serialport::new(port_name, opt.baudrate)
-		.timeout(Duration::from_millis(1000))
-		.parity(serialport::Parity::None)
+		.timeout(Duration::from_millis(1700))
+		.parity(parity)
 		.open().expect("Не удалось открыть порт");
+
+	display_port_settings(&port);
 
 	let mut server = server::Server::new(port);
 	server.start()?;
 	
 	Ok(())
+}
+
+fn display_port_settings(port: &Box<dyn SerialPort>) {
+	println!("================[ Serial port ]==================");
+	println!("name:         {:?}", port.name().unwrap());
+	println!("baud rate:    {:?}", port.baud_rate().unwrap());
+	println!("data bits:    {:?}", port.data_bits().unwrap());
+	println!("parity:       {:?}", port.parity().unwrap());
+	println!("stop bits:    {:?}", port.stop_bits().unwrap());
+	println!("flow control: {:?}", port.flow_control().unwrap());
+	println!("timeout:      {:?} ms", port.timeout().as_millis());
+	println!("=================================================");
+	
 }

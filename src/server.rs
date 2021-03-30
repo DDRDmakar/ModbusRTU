@@ -9,9 +9,11 @@
 //------------------------------------------------------------------------------
 use std::io::BufWriter;
 use std::io::Write;
+use std::{thread, time};
+use std::time::Duration;
 
 use serialport;
-use serialport::SerialPort;
+use serialport::{ SerialPort, Parity, StopBits };
 use byteorder::{ ByteOrder, BigEndian, LittleEndian };
 
 mod formal;
@@ -25,9 +27,10 @@ pub struct Server {
 	input_registers:   Vec<u16>,
 	holding_registers: Vec<u16>,
 	query:             Vec<u8>,
-	pos:       usize,
-	query_len: usize,
-	//ostream:   &BufWriter<SerialPort>,
+	pos:               usize,
+	query_len:         usize,
+	//ostream:         &BufWriter<SerialPort>,
+	response_delay:    Duration,
 }
 
 pub const N_DISCRETE_INPUTS:   usize = 1024;
@@ -38,6 +41,22 @@ pub const IN_BUF_SIZE:         usize = 256;
 
 impl Server {
 	pub fn new(p: Box<dyn SerialPort>) -> Server {
+		let us_per_bit = 1000000f32 / p.baud_rate().unwrap() as f32;
+		let n_parity_bits = match p.parity().unwrap() {
+			Parity::None => 0,
+			Parity::Odd  => 1,
+			Parity::Even => 1,
+		};
+		let n_stop_bits = match p.stop_bits().unwrap() {
+			StopBits::One => 1,
+			StopBits::Two => 2,
+		};
+		let n_bits_per_symbol = 1 + 8 + n_parity_bits + n_stop_bits;
+		let us_per_symbol = us_per_bit * n_bits_per_symbol as f32;
+		dbg!(us_per_bit);
+		dbg!(n_bits_per_symbol);
+		dbg!(us_per_symbol);
+		
 		Server {
 			port:              p,
 			discrete_input:    vec![0; N_DISCRETE_INPUTS],
@@ -45,9 +64,10 @@ impl Server {
 			input_registers:   vec![0; N_INPUT_REGISTERS],
 			holding_registers: vec![0; N_HOLDING_REGISTERS],
 			query:             vec![0; IN_BUF_SIZE],
-			//ostream:   BufWriter::new(p.try_clone()?),
-			query_len: usize::MAX, // Недостаточно данных, чтобы определить длину пакета
-			pos:       0,
+			//ostream:         BufWriter::new(p.try_clone()?),
+			query_len:         usize::MAX, // Недостаточно данных, чтобы определить длину пакета
+			pos:               0,
+			response_delay:    Duration::from_micros((us_per_symbol * 4.0) as u64),
 		}
 	}
 
@@ -59,6 +79,7 @@ impl Server {
 			match self.port.read(&mut self.query[self.pos..pos_read_to]) {
 				Err(e) => {
 					println!("Ожидание, {}", e);
+					if self.pos != 0 { println!("RX {:02X?}", &self.query[..self.pos]); }
 					self.pos = 0;
 					continue;
 				},
@@ -69,7 +90,7 @@ impl Server {
 						// Если принято больше IN_BUF_SIZE байт, то в итоге pos всё равно будет == IN_BUF_SIZE
 						// Поэтому pos == IN_BUF_SIZE до инкремента pos - признак переполнения буфера
 						eprintln!("Приёмный буфер переполнен");
-						eprintln!("RX: {:?}", self.query);
+						eprintln!("RX: {:02X?}", self.query);
 						self.pos = 0;
 						continue;
 					}
@@ -99,7 +120,7 @@ impl Server {
 						dbg!(self.query_len);
 						
 						if self.pos >= self.query_len {
-							println!("RX {:?}", &self.query[..self.query_len]);
+							println!("RX {:02X?}", &self.query[..self.query_len]);
 
 							// Check CRC
 							let crc_rx: u16 = LittleEndian::read_u16(&self.query[self.query_len - 2..self.query_len]);
@@ -114,7 +135,7 @@ impl Server {
 							
 							ostream.write(&[slave_id, function]).unwrap();
 							match self.process_function_code() {
-								Ok(data) => { ostream.write_all(data.as_slice()).unwrap(); },
+								Ok(data) => { ostream.write(data.as_slice()).unwrap(); },
 								Err(what) => { eprintln!("Ошибка: {}. Запрос проигнорирован.", what); },
 							}
 						}
@@ -125,7 +146,8 @@ impl Server {
 			}
 			let crc_tx = crc(ostream.buffer());
 			ostream.write(&crc_tx.to_le_bytes()).unwrap();
-			println!("TX {:?}", ostream.buffer());
+			println!("TX {:02X?}", ostream.buffer());
+			thread::sleep(self.response_delay);
 			// Запись в последовательный порт
 			ostream.flush().unwrap();
 			self.pos = 0;
