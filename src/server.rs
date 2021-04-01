@@ -9,15 +9,15 @@
 //------------------------------------------------------------------------------
 use std::io::BufWriter;
 use std::io::Write;
-use std::{thread, time};
 use std::time::Duration;
+use std::thread;
 
 use serialport;
 use serialport::{ SerialPort, Parity, StopBits };
-use byteorder::{ ByteOrder, BigEndian, LittleEndian };
+use byteorder::{ ByteOrder, LittleEndian };
 
 mod formal;
-use crate::server::formal::{ crc, MbFunc, MbExc, MbErr, QUERY_LEN };
+use crate::server::formal::*;
 mod process;
 
 pub struct Server {
@@ -29,7 +29,7 @@ pub struct Server {
 	query:             Vec<u8>,
 	pos:               usize,
 	query_len:         usize,
-	//ostream:         &BufWriter<SerialPort>,
+	//ostream:           &'a BufWriter<dyn SerialPort>,
 	response_delay:    Duration,
 }
 
@@ -64,17 +64,17 @@ impl Server {
 			input_registers:   vec![0; N_INPUT_REGISTERS],
 			holding_registers: vec![0; N_HOLDING_REGISTERS],
 			query:             vec![0; IN_BUF_SIZE],
-			//ostream:         BufWriter::new(p.try_clone()?),
+			//ostream:           &BufWriter::new(p.try_clone()?),
 			query_len:         usize::MAX, // Недостаточно данных, чтобы определить длину пакета
 			pos:               0,
 			response_delay:    Duration::from_micros((us_per_symbol * 4.0) as u64),
 		}
 	}
 
+	#[allow(unreachable_code)]
 	pub fn start(&mut self) -> Result<(), Box<dyn std::error::Error>> {
 		let mut ostream = BufWriter::new(self.port.try_clone()?);
 		loop {
-			// TODO read with 'take'
 			let pos_read_to = if self.query_len == usize::MAX { self.pos + 1 } else { self.query_len };
 			match self.port.read(&mut self.query[self.pos..pos_read_to]) {
 				Err(e) => {
@@ -86,14 +86,6 @@ impl Server {
 				Ok(n) => {
 					println!("{} байт получено", n);
 					if self.pos == 0 { self.query_len = usize::MAX; }
-					if self.pos == IN_BUF_SIZE {
-						// Если принято больше IN_BUF_SIZE байт, то в итоге pos всё равно будет == IN_BUF_SIZE
-						// Поэтому pos == IN_BUF_SIZE до инкремента pos - признак переполнения буфера
-						eprintln!("Приёмный буфер переполнен");
-						eprintln!("RX: {:02X?}", self.query);
-						self.pos = 0;
-						continue;
-					}
 					self.pos += n;
 					if self.pos >= 2 {
 						let slave_id = self.query[0];
@@ -105,15 +97,19 @@ impl Server {
 						if self.query_len == usize::MAX {
 							match self.get_query_len() {
 								Ok(l) => self.query_len = l,
-								Err(MbErr::UnknownFunctionCode(what)) => {
-									eprintln!("Ошибка: {}. Запрос проигнорирован.", what);
+								Err(IntErrWithMessage { err: _, message }) => {
+									// TODO error handling
+									eprintln!("Ошибка: {}. Запрос проигнорирован.", message);
 									self.pos = 0;
 									continue;
-								},
-								Err(MbErr::WrongBranch(what)) => {
-									eprintln!("Ошибка: {}. Запрос проигнорирован.", what);
-									self.pos = 0;
-									continue;
+									//match err {
+									//	IntErr::UnknownFunctionCode => {
+									//	},
+									//	IntErr::WrongBranch => {
+									//	},
+									//	IntErr::InvalidQueryParameter => {
+									//	},
+									//}
 								},
 							}
 						}
@@ -136,7 +132,10 @@ impl Server {
 							ostream.write(&[slave_id, function]).unwrap();
 							match self.process_function_code() {
 								Ok(data) => { ostream.write(data.as_slice()).unwrap(); },
-								Err(what) => { eprintln!("Ошибка: {}. Запрос проигнорирован.", what); },
+								Err(IntErrWithMessage { err: _, message }) => {
+									// TODO error handling
+									eprintln!("Ошибка: {}. Запрос проигнорирован.", message);
+								},
 							}
 						}
 						else { continue; }
@@ -155,14 +154,13 @@ impl Server {
 		}
 		Ok(())
 	}
-
-	// TODO нормальный возврат ошибки
 	
-	// Вычисление длины запроса, если её не получается определить по куду функции
+	// Вычисление длины запроса, если её не получается определить по коду функции
 	// Здесь к длине прибавляется 3 (+1+2)
 	// +1 - длина device id
 	// +2 - длина CRC
-	fn get_query_len(&self) -> Result<usize, MbErr> {
+	// Возвращает Ok(usize::MAX), если длину пока определить нельзя
+	fn get_query_len(&self) -> Result<usize, IntErrWithMessage> {
 		const STR_UNKNOWN_F: &str = "Неизвестный код функции";
 		if self.pos < 2 { return Ok(usize::MAX); }
 		let function: u8 = self.query[1];
@@ -170,18 +168,25 @@ impl Server {
 			match QUERY_LEN[function as usize] {
 				usize::MAX => {
 					let function_enum = num::FromPrimitive::from_u8(function);
-					match function_enum {
-						Some(MbFunc::WRITE_MULTIPLE_REGISTERS) => {
+					let answer = match function_enum {
+						Some(MbFunc::WriteMultipleRegisters) => {
 							if self.pos > 6 { Ok((self.query[6] + 6 + 1 + 2) as usize) }
-							else            { Ok(usize::MAX) }
+							else { Ok(usize::MAX) }
 						},
-						Some(_) => Err(MbErr::WrongBranch("Попытка вычислить длину сообщения со статической длиной")),
-						None => Err(MbErr::UnknownFunctionCode(STR_UNKNOWN_F)),
+						Some(_) => Err(int_err(IntErr::WrongBranch,"Попытка вычислить длину сообщения со статической длиной".into())),
+						None => Err(int_err(IntErr::UnknownFunctionCode, STR_UNKNOWN_F.into())),
+					};
+					match answer {
+						Ok(l) => {
+							if l > IN_BUF_SIZE { Err(int_err(IntErr::InvalidQueryParameter, "Неверная длина пакета".into())) }
+							else { answer }
+						},
+						_ => answer,
 					}
 				},
-				0 => Err(MbErr::UnknownFunctionCode(STR_UNKNOWN_F)),
+				0 => Err(int_err(IntErr::UnknownFunctionCode, STR_UNKNOWN_F.into())),
 				fixed => Ok(fixed + 1 + 2),
 			}
-		} else { Err(MbErr::UnknownFunctionCode(STR_UNKNOWN_F)) }
+		} else { Err(int_err(IntErr::UnknownFunctionCode, STR_UNKNOWN_F.into())) }
 	}
 }

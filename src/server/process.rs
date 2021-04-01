@@ -7,26 +7,26 @@
 // Simple Modbus RTU server
 // Processing of query PDU (Protocol data init)
 //------------------------------------------------------------------------------
-use byteorder::{ ByteOrder, BigEndian, LittleEndian };
+use byteorder::{ ByteOrder, BigEndian };
 
 use crate::server::Server;
-use crate::server::{ N_DISCRETE_INPUTS, N_COILS, N_INPUT_REGISTERS, N_HOLDING_REGISTERS, IN_BUF_SIZE };
-use crate::server::formal::{ MbFunc, MbExc, MbErr, pack_bits };
+use crate::server::{ N_DISCRETE_INPUTS, N_COILS, N_INPUT_REGISTERS, N_HOLDING_REGISTERS };
+use crate::server::formal::*;
 
 impl Server {
-	pub(super) fn process_function_code(&mut self) -> Result<Vec<u8>, &'static str> {
+	pub(super) fn process_function_code(&mut self) -> Result<Vec<u8>, IntErrWithMessage> {
 		let function: u8 = self.query[1];
 		let function_enum = num::FromPrimitive::from_u8(function);
 		match function_enum { // TODO return error packets
-			Some(MbFunc::READ_COILS) => {
+			Some(MbFunc::ReadCoils) => {
 				println!("ReadCoils");
 				let offset    = BigEndian::read_u16(&self.query[2..4]) as usize;
 				let quantity  = BigEndian::read_u16(&self.query[4..6]) as usize;
 				dbg!(offset);
 				dbg!(quantity);
 
-				if quantity == 0 || quantity > 2000 { return Err("Invalid quantity"); }
-				if offset + quantity >= N_COILS { return Err("Index out of bounds"); }
+				if quantity == 0 || quantity > 2000 { return Err(int_err(IntErr::InvalidQueryParameter, "Invalid quantity".into())); }
+				if offset + quantity >= N_COILS { return Err(int_err(IntErr::InvalidQueryParameter, "Index out of bounds".into())); }
 				
 				let n_bytes = (quantity as f32 / 8_f32).ceil() as usize;
 				
@@ -37,15 +37,15 @@ impl Server {
 				return Ok(odat)
 			},
 			
-			Some(MbFunc::READ_DISCRETE_INPUTS) => {
+			Some(MbFunc::ReadDiscreteInputs) => {
 				println!("ReadDiscreteInputs");
 				let offset    = BigEndian::read_u16(&self.query[2..4]) as usize;
 				let quantity  = BigEndian::read_u16(&self.query[4..6]) as usize;
 				dbg!(offset);
 				dbg!(quantity);
 
-				if quantity == 0 || quantity > 2000 { return Err("Invalid quantity"); }
-				if offset + quantity >= N_DISCRETE_INPUTS { return Err("Index out of bounds"); }
+				if quantity == 0 || quantity > 2000 { return Err(int_err(IntErr::InvalidQueryParameter, "Invalid quantity".into())); }
+				if offset + quantity >= N_DISCRETE_INPUTS { return Err(int_err(IntErr::InvalidQueryParameter, "Index out of bounds".into())); }
 				
 				let n_bytes = (quantity as f32 / 8_f32).ceil() as usize;
 				
@@ -56,7 +56,7 @@ impl Server {
 				return Ok(odat)
 			},
 			
-			Some(MbFunc::READ_HOLDING_REGISTERS) => {
+			Some(MbFunc::ReadHoldingRegisters) => {
 				println!("ReadHoldingRegisters");
 				let offset    = BigEndian::read_u16(&self.query[2..4]) as usize;
 				let quantity  = BigEndian::read_u16(&self.query[4..6]) as usize;
@@ -64,8 +64,8 @@ impl Server {
 				dbg!(quantity);
 				let byte_count = quantity * 2;
 
-				if quantity == 0 || quantity > 125 { return Err("Invalid registers quantity"); }
-				if offset + quantity >= N_HOLDING_REGISTERS { return Err("Index out of bounds"); }
+				if quantity == 0 || quantity > 125 { return Err(int_err(IntErr::InvalidQueryParameter, "Invalid quantity".into())); }
+				if offset + quantity >= N_HOLDING_REGISTERS { return Err(int_err(IntErr::InvalidQueryParameter, "Index out of bounds".into())); }
 				
 				let mut odat = Vec::with_capacity(64);
 				odat.push(byte_count as u8);
@@ -78,7 +78,7 @@ impl Server {
 				return Ok(odat)
 			},
 
-			Some(MbFunc::READ_INPUT_REGISTERS) => {
+			Some(MbFunc::ReadInputRegisters) => {
 				println!("ReadInputRegisters");
 				let offset    = BigEndian::read_u16(&self.query[2..4]) as usize;
 				let quantity  = BigEndian::read_u16(&self.query[4..6]) as usize;
@@ -86,8 +86,8 @@ impl Server {
 				dbg!(quantity);
 				let byte_count = quantity * 2;
 
-				if quantity == 0 || quantity > 125 { return Err("Invalid registers quantity"); }
-				if offset + quantity >= N_INPUT_REGISTERS { return Err("Index out of bounds"); }
+				if quantity == 0 || quantity > 125 { return Err(int_err(IntErr::InvalidQueryParameter, "Invalid quantity".into())); }
+				if offset + quantity >= N_INPUT_REGISTERS { return Err(int_err(IntErr::InvalidQueryParameter, "Index out of bounds".into())); }
 				
 				let mut odat = Vec::with_capacity(64);
 				odat.push(byte_count as u8);
@@ -100,7 +100,7 @@ impl Server {
 				return Ok(odat)
 			},
 
-			Some(MbFunc::WRITE_MULTIPLE_REGISTERS) => {
+			Some(MbFunc::WriteMultipleRegisters) => {
 				println!("WriteMultipleRegisters");
 				let offset    = BigEndian::read_u16(&self.query[2..4]) as usize;
 				let quantity  = BigEndian::read_u16(&self.query[4..6]) as usize;
@@ -108,9 +108,9 @@ impl Server {
 				dbg!(quantity);
 				let byte_count = self.query[6] as usize;
 
-				if quantity == 0 || quantity > 123 { return Err("Invalid registers quantity"); }				
-				if byte_count != quantity * 2 { return Err("Invalid byte count"); }
-				if offset + quantity >= N_HOLDING_REGISTERS { return Err("Index out of bounds"); }
+				if quantity == 0 || quantity > 123 { return Err(int_err(IntErr::InvalidQueryParameter, "Invalid quantity".into())); }
+				if byte_count != quantity * 2 { return Err(int_err(IntErr::InvalidQueryParameter, "Byte count does not match quantity".into())); }
+				if offset + quantity >= N_HOLDING_REGISTERS { return Err(int_err(IntErr::InvalidQueryParameter, "Index out of bounds".into())); }
 				
 				let mut odat = Vec::with_capacity(64);
 				odat.extend(&(offset as u16).to_be_bytes());
@@ -122,7 +122,7 @@ impl Server {
 				return Ok(odat)
 			},
 
-			None => { Err("Unknown modbus function code") }
+			None => { Err(int_err(IntErr::UnknownFunctionCode, "Unknown modbus function code".into())) }
 			
 		} // End match
 	} // End fn

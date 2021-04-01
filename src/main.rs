@@ -31,13 +31,15 @@ struct Opt {
 	#[structopt(short, long, default_value = "9600")]
 	baudrate: u32,
 	/// Serial port parity
-	#[structopt(long, default_value = "even")]
+	#[structopt(short = "a", long, default_value = "even")]
 	parity: String,
+	/// Timeout in ms
+	#[structopt(short, long, default_value = "1000")]
+	timeout: u64,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>>  {
 	let opt = Opt::from_args();
-	dbg!(&opt);
 	
 	let ports = serialport::available_ports().expect("В системе не обнаружено последовательных портов");
 
@@ -62,10 +64,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>>  {
 		&_     => panic!("Неверно указана чётность. Используйте значения: Even, Odd и None.")
 	};
 
-	println!("Выбрано имя порта: {}", port_name);
-
 	let port = serialport::new(port_name, opt.baudrate)
-		.timeout(Duration::from_millis(1700))
+		.timeout(Duration::from_millis(opt.timeout))
 		.parity(parity)
 		.open().expect("Не удалось открыть порт");
 
