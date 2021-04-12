@@ -7,7 +7,6 @@
 // Простой сервер Modbus RTU
 // Структура сервера
 //------------------------------------------------------------------------------
-use std::io::BufWriter;
 use std::io::Write;
 use std::time::Duration;
 use std::thread;
@@ -29,7 +28,7 @@ pub struct Server {
 	query:             Vec<u8>,
 	pos:               usize,
 	query_len:         usize,
-	//ostream:           &'a BufWriter<dyn SerialPort>,
+	obuf:              Vec<u8>,
 	response_delay:    Duration,
 }
 
@@ -58,22 +57,21 @@ impl Server {
 		dbg!(us_per_symbol);
 		
 		Server {
-			port:              p,
 			discrete_input:    vec![0; N_DISCRETE_INPUTS],
 			coils:             vec![0; N_COILS],
 			input_registers:   vec![0; N_INPUT_REGISTERS],
 			holding_registers: vec![0; N_HOLDING_REGISTERS],
 			query:             vec![0; IN_BUF_SIZE],
-			//ostream:           &BufWriter::new(p.try_clone()?),
+			obuf:              Vec::with_capacity(256),
 			query_len:         usize::MAX, // Недостаточно данных, чтобы определить длину пакета
-			pos:               0,
 			response_delay:    Duration::from_micros((us_per_symbol * 4.0) as u64),
+			pos:               0,
+			port:              p,
 		}
 	}
 
 	#[allow(unreachable_code)]
 	pub fn start(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-		let mut ostream = BufWriter::new(self.port.try_clone()?);
 		loop {
 			let pos_read_to = if self.query_len == usize::MAX { self.pos + 1 } else { self.query_len };
 			match self.port.read(&mut self.query[self.pos..pos_read_to]) {
@@ -97,19 +95,11 @@ impl Server {
 						if self.query_len == usize::MAX {
 							match self.get_query_len() {
 								Ok(l) => self.query_len = l,
-								Err(IntErrWithMessage { err: _, message }) => {
-									// TODO error handling
-									eprintln!("Ошибка: {}. Запрос проигнорирован.", message);
+								Err(e) => {
+									self.handle_exc(e, slave_id, function);
+									self.add_crc_and_flush()?;
 									self.pos = 0;
 									continue;
-									//match err {
-									//	IntErr::UnknownFunctionCode => {
-									//	},
-									//	IntErr::WrongBranch => {
-									//	},
-									//	IntErr::InvalidQueryParameter => {
-									//	},
-									//}
 								},
 							}
 						}
@@ -129,13 +119,11 @@ impl Server {
 								continue;
 							}
 							
-							ostream.write(&[slave_id, function]).unwrap();
+							self.obuf.push(slave_id);
+							self.obuf.push(function);
 							match self.process_function_code() {
-								Ok(data) => { ostream.write(data.as_slice()).unwrap(); },
-								Err(IntErrWithMessage { err: _, message }) => {
-									// TODO error handling
-									eprintln!("Ошибка: {}. Запрос проигнорирован.", message);
-								},
+								Ok(data) => { self.obuf.extend_from_slice(data.as_slice()); },
+								Err(e) => self.handle_exc(e, slave_id, function),
 							}
 						}
 						else { continue; }
@@ -143,12 +131,8 @@ impl Server {
 					else { continue; }
 				},
 			}
-			let crc_tx = crc(ostream.buffer());
-			ostream.write(&crc_tx.to_le_bytes()).unwrap();
-			println!("TX {:02X?}", ostream.buffer());
-			thread::sleep(self.response_delay);
-			// Запись в последовательный порт
-			ostream.flush().unwrap();
+
+			self.add_crc_and_flush()?;
 			self.pos = 0;
 			continue;
 		}
@@ -160,8 +144,7 @@ impl Server {
 	// +1 - длина device id
 	// +2 - длина CRC
 	// Возвращает Ok(usize::MAX), если длину пока определить нельзя
-	fn get_query_len(&self) -> Result<usize, IntErrWithMessage> {
-		const STR_UNKNOWN_F: &str = "Неизвестный код функции";
+	fn get_query_len(&self) -> Result<usize, MbExcWithMessage> {
 		if self.pos < 2 { return Ok(usize::MAX); }
 		let function: u8 = self.query[1];
 		if (function as usize) < QUERY_LEN.len() {
@@ -173,20 +156,40 @@ impl Server {
 							if self.pos > 6 { Ok((self.query[6] + 6 + 1 + 2) as usize) }
 							else { Ok(usize::MAX) }
 						},
-						Some(_) => Err(int_err(IntErr::WrongBranch,"Попытка вычислить длину сообщения со статической длиной".into())),
-						None => Err(int_err(IntErr::UnknownFunctionCode, STR_UNKNOWN_F.into())),
+						Some(_) => Err(MbExcWithMessage::new(MbExc::SlaveDeviceFailure, "Попытка вычислить длину сообщения со статической длиной".into())),
+						
+						None => Err(MbExcWithMessage::new(MbExc::IllegalFunction, STR_ILLEGAL_FUNCTION.into())),
 					};
 					match answer {
 						Ok(l) => {
-							if l > IN_BUF_SIZE { Err(int_err(IntErr::InvalidQueryParameter, "Неверная длина пакета".into())) }
+							if l > IN_BUF_SIZE { Err(MbExcWithMessage::new(MbExc::SlaveDeviceFailure, "Вычислена неверная длина пакета".into())) }
 							else { answer }
 						},
 						_ => answer,
 					}
 				},
-				0 => Err(int_err(IntErr::UnknownFunctionCode, STR_UNKNOWN_F.into())),
+				0 => Err(MbExcWithMessage::new(MbExc::IllegalFunction, STR_ILLEGAL_FUNCTION.into())),
 				fixed => Ok(fixed + 1 + 2),
 			}
-		} else { Err(int_err(IntErr::UnknownFunctionCode, STR_UNKNOWN_F.into())) }
+		} else { Err(MbExcWithMessage::new(MbExc::IllegalFunction, STR_ILLEGAL_FUNCTION.into())) }
+	}
+
+	fn add_crc_and_flush(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+		let crc_tx = crc(self.obuf.as_slice());
+		self.obuf.extend_from_slice(&crc_tx.to_le_bytes());
+		println!("TX {:02X?}", self.obuf);
+		thread::sleep(self.response_delay);
+		// Запись в последовательный порт
+		self.port.write(self.obuf.as_slice())?;
+		self.obuf.clear();
+		Ok(())
+	}
+
+	fn handle_exc(&mut self, e: MbExcWithMessage, slave_id: u8, function: u8) {
+		let MbExcWithMessage { exc, message } = e;
+		eprintln!("Ошибка: {}", message);
+		self.obuf.push(slave_id);
+		self.obuf.push(function + 0x80);
+		self.obuf.push(exc as u8);
 	}
 }

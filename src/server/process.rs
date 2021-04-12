@@ -14,7 +14,7 @@ use crate::server::{ N_DISCRETE_INPUTS, N_COILS, N_INPUT_REGISTERS, N_HOLDING_RE
 use crate::server::formal::*;
 
 impl Server {
-	pub(super) fn process_function_code(&mut self) -> Result<Vec<u8>, IntErrWithMessage> {
+	pub(super) fn process_function_code(&mut self) -> Result<Vec<u8>, MbExcWithMessage> {
 		let function: u8 = self.query[1];
 		let function_enum = num::FromPrimitive::from_u8(function);
 		match function_enum { // TODO return error packets
@@ -25,8 +25,8 @@ impl Server {
 				dbg!(offset);
 				dbg!(quantity);
 
-				if quantity == 0 || quantity > 2000 { return Err(int_err(IntErr::InvalidQueryParameter, "Invalid quantity".into())); }
-				if offset + quantity >= N_COILS { return Err(int_err(IntErr::InvalidQueryParameter, "Index out of bounds".into())); }
+				if quantity == 0 || quantity > 2000 { return Err(MbExcWithMessage::new(MbExc::IllegalDataValue, STR_INVALID_QUANTITY.into())); }
+				if offset + quantity >= N_COILS { return Err(MbExcWithMessage::new(MbExc::IllegalDataAddress, STR_INDEX_OUT.into())); }
 				
 				let n_bytes = (quantity as f32 / 8_f32).ceil() as usize;
 				
@@ -44,8 +44,8 @@ impl Server {
 				dbg!(offset);
 				dbg!(quantity);
 
-				if quantity == 0 || quantity > 2000 { return Err(int_err(IntErr::InvalidQueryParameter, "Invalid quantity".into())); }
-				if offset + quantity >= N_DISCRETE_INPUTS { return Err(int_err(IntErr::InvalidQueryParameter, "Index out of bounds".into())); }
+				if quantity == 0 || quantity > 2000 { return Err(MbExcWithMessage::new(MbExc::IllegalDataValue, STR_INVALID_QUANTITY.into())); }
+				if offset + quantity >= N_DISCRETE_INPUTS { return Err(MbExcWithMessage::new(MbExc::IllegalDataAddress, STR_INDEX_OUT.into())); }
 				
 				let n_bytes = (quantity as f32 / 8_f32).ceil() as usize;
 				
@@ -64,8 +64,8 @@ impl Server {
 				dbg!(quantity);
 				let byte_count = quantity * 2;
 
-				if quantity == 0 || quantity > 125 { return Err(int_err(IntErr::InvalidQueryParameter, "Invalid quantity".into())); }
-				if offset + quantity >= N_HOLDING_REGISTERS { return Err(int_err(IntErr::InvalidQueryParameter, "Index out of bounds".into())); }
+				if quantity == 0 || quantity > 125 { return Err(MbExcWithMessage::new(MbExc::IllegalDataValue, STR_INVALID_QUANTITY.into())); }
+				if offset + quantity >= N_HOLDING_REGISTERS { return Err(MbExcWithMessage::new(MbExc::IllegalDataAddress, STR_INDEX_OUT.into())); }
 				
 				let mut odat = Vec::with_capacity(64);
 				odat.push(byte_count as u8);
@@ -86,8 +86,8 @@ impl Server {
 				dbg!(quantity);
 				let byte_count = quantity * 2;
 
-				if quantity == 0 || quantity > 125 { return Err(int_err(IntErr::InvalidQueryParameter, "Invalid quantity".into())); }
-				if offset + quantity >= N_INPUT_REGISTERS { return Err(int_err(IntErr::InvalidQueryParameter, "Index out of bounds".into())); }
+				if quantity == 0 || quantity > 125 { return Err(MbExcWithMessage::new(MbExc::IllegalDataValue, STR_INVALID_QUANTITY.into())); }
+				if offset + quantity >= N_INPUT_REGISTERS { return Err(MbExcWithMessage::new(MbExc::IllegalDataAddress, STR_INDEX_OUT.into())); }
 				
 				let mut odat = Vec::with_capacity(64);
 				odat.push(byte_count as u8);
@@ -108,9 +108,9 @@ impl Server {
 				dbg!(quantity);
 				let byte_count = self.query[6] as usize;
 
-				if quantity == 0 || quantity > 123 { return Err(int_err(IntErr::InvalidQueryParameter, "Invalid quantity".into())); }
-				if byte_count != quantity * 2 { return Err(int_err(IntErr::InvalidQueryParameter, "Byte count does not match quantity".into())); }
-				if offset + quantity >= N_HOLDING_REGISTERS { return Err(int_err(IntErr::InvalidQueryParameter, "Index out of bounds".into())); }
+				if quantity == 0 || quantity > 123 { return Err(MbExcWithMessage::new(MbExc::IllegalDataValue, STR_INVALID_QUANTITY.into())); }
+				if byte_count != quantity * 2 { return Err(MbExcWithMessage::new(MbExc::IllegalDataValue, STR_INVALID_BYTE_COUNT.into())); }
+				if offset + quantity >= N_HOLDING_REGISTERS { return Err(MbExcWithMessage::new(MbExc::IllegalDataAddress, STR_INDEX_OUT.into())); }
 				
 				let mut odat = Vec::with_capacity(64);
 				odat.extend(&(offset as u16).to_be_bytes());
@@ -122,7 +122,7 @@ impl Server {
 				return Ok(odat)
 			},
 
-			None => { Err(int_err(IntErr::UnknownFunctionCode, "Unknown modbus function code".into())) }
+			None => { Err(MbExcWithMessage::new(MbExc::IllegalFunction, STR_ILLEGAL_FUNCTION.into())) }
 			
 		} // End match
 	} // End fn

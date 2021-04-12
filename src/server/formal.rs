@@ -52,6 +52,7 @@ pub enum MbFunc {
 }
 
 // Modbus exception codes
+#[repr(u8)]
 #[derive(FromPrimitive)]
 pub enum MbExc {
 	IllegalFunction    = 1,
@@ -65,27 +66,24 @@ pub enum MbExc {
 	GatewayTargetDeviceFailedToRespond = 0xB,
 }
 
-// Internal errors
-/*pub enum IntErr {
-	UnknownFunctionCode (&'static str),
-	WrongBranch         (&'static str),
-	WrongLength         (&'static str),
-}*/
-pub enum IntErr {
-	UnknownFunctionCode,
-	WrongBranch,
-	InvalidQueryParameter,
-}
-pub struct IntErrWithMessage {
-	pub err: IntErr,
+pub struct MbExcWithMessage {
+	pub exc: MbExc,
 	pub message: String,
 }
-pub fn int_err(err: IntErr, message: String) -> IntErrWithMessage {
-	IntErrWithMessage {
-		err: err,
-		message: message,
+
+impl MbExcWithMessage {
+	pub fn new(exc: MbExc, message: String) -> MbExcWithMessage {
+		MbExcWithMessage {
+			exc: exc,
+			message: message,
+		}
 	}
 }
+
+pub const STR_INVALID_QUANTITY: &str = "Invalid quantity";
+pub const STR_INDEX_OUT: &str = "Index out of bounds";
+pub const STR_INVALID_BYTE_COUNT: &str = "Byte count does not match quantity";
+pub const STR_ILLEGAL_FUNCTION: &str = "Illegal function code";
 
 // Длина области данных для различных функций Modbus RTU.
 // usize::MAX - Размер вычисляется динамически.
