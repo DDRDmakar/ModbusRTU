@@ -100,6 +100,23 @@ impl Server {
 				return Ok(odat)
 			},
 
+			Some(MbFunc::WriteSingleCoil) => {
+				println!("WriteMultipleRegisters");
+				let offset = BigEndian::read_u16(&self.query[2..4]) as usize;
+				let value = BigEndian::read_u16(&self.query[4..6]) as usize;
+				dbg!(offset);
+				dbg!(value);
+
+				if offset >= N_COILS { return Err(MbExcWithMessage::new(MbExc::IllegalDataAddress, STR_INDEX_OUT.into())); }
+				if value != 0x0000 && value != 0xFF00 { return Err(MbExcWithMessage::new(MbExc::IllegalDataValue, "Недействительное значение coil".into())); }
+				
+				let mut odat = Vec::with_capacity(64);
+				let coil_output_value: u16 = if self.coils[offset] == 0 { 0x0000 } else { 0xFF00 };
+				odat.extend(&(offset as u16).to_be_bytes());
+				odat.extend(&coil_output_value.to_be_bytes());
+				return Ok(odat)
+			},
+
 			Some(MbFunc::WriteMultipleRegisters) => {
 				println!("WriteMultipleRegisters");
 				let offset    = BigEndian::read_u16(&self.query[2..4]) as usize;

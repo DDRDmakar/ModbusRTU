@@ -83,7 +83,10 @@ impl Server {
 				},
 				Ok(n) => {
 					println!("{} байт получено", n);
-					if self.pos == 0 { self.query_len = usize::MAX; }
+					if self.pos == 0 {
+						self.query_len = usize::MAX;
+						self.obuf.clear();
+					}
 					self.pos += n;
 					if self.pos >= 2 {
 						let slave_id = self.query[0];
@@ -119,10 +122,12 @@ impl Server {
 								continue;
 							}
 							
-							self.obuf.push(slave_id);
-							self.obuf.push(function);
 							match self.process_function_code() {
-								Ok(data) => { self.obuf.extend_from_slice(data.as_slice()); },
+								Ok(data) => {
+									self.obuf.push(slave_id);
+									self.obuf.push(function);
+									self.obuf.extend_from_slice(data.as_slice());
+								},
 								Err(e) => self.handle_exc(e, slave_id, function),
 							}
 						}
@@ -174,6 +179,9 @@ impl Server {
 		} else { Err(MbExcWithMessage::new(MbExc::IllegalFunction, STR_ILLEGAL_FUNCTION.into())) }
 	}
 
+	// Финальная обработка отправляемого пакета.
+	// В конец добавляется контрольная сумма,
+	// результат записывается в порт
 	fn add_crc_and_flush(&mut self) -> Result<(), Box<dyn std::error::Error>> {
 		let crc_tx = crc(self.obuf.as_slice());
 		self.obuf.extend_from_slice(&crc_tx.to_le_bytes());
@@ -185,6 +193,8 @@ impl Server {
 		Ok(())
 	}
 
+	// Формирование ответа в случае возникновения исключения.
+	// В соответствии со спецификацией исключений Modbus
 	fn handle_exc(&mut self, e: MbExcWithMessage, slave_id: u8, function: u8) {
 		let MbExcWithMessage { exc, message } = e;
 		eprintln!("Ошибка: {}", message);

@@ -48,6 +48,7 @@ pub enum MbFunc {
 	ReadDiscreteInputs     = 0x02,
 	ReadHoldingRegisters   = 0x03,
 	ReadInputRegisters     = 0x04,
+	WriteSingleCoil        = 0x05,
 	WriteMultipleRegisters = 0x10,
 }
 
@@ -80,10 +81,10 @@ impl MbExcWithMessage {
 	}
 }
 
-pub const STR_INVALID_QUANTITY: &str = "Invalid quantity";
-pub const STR_INDEX_OUT: &str = "Index out of bounds";
-pub const STR_INVALID_BYTE_COUNT: &str = "Byte count does not match quantity";
-pub const STR_ILLEGAL_FUNCTION: &str = "Illegal function code";
+pub const STR_ILLEGAL_FUNCTION: &str = "Недействительный код функции";
+pub const STR_INVALID_QUANTITY: &str = "Неверное количество байт (quantity)";
+pub const STR_INDEX_OUT: &str = "Адрес выходит за допустимые пределы";
+pub const STR_INVALID_BYTE_COUNT: &str = "Значение \"byte count\" не соответствует значению \"quantity\"";
 
 // Длина области данных для различных функций Modbus RTU.
 // usize::MAX - Размер вычисляется динамически.
@@ -93,8 +94,8 @@ pub const QUERY_LEN: [usize; 0x30] = [
 	5, // 0x01 Read coils
 	5, // 0x02 Read discrete inputs
 	5, // 0x03 Read holding registers
-	0, // 0x04
-	0, // 0x05
+	5, // 0x04 Read input registers
+	5, // 0x05 Write single coil
 	0, // 0x06
 	0, // 0x07
 	0, // 0x08
