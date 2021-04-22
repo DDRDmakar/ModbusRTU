@@ -17,6 +17,8 @@ impl Server {
 	pub(super) fn process_function_code(&mut self) -> Result<Vec<u8>, MbExcWithMessage> {
 		let function: u8 = self.query[1];
 		let function_enum = num::FromPrimitive::from_u8(function);
+		let mut odat = Vec::with_capacity(64);
+		
 		match function_enum { // TODO return error packets
 			Some(MbFunc::ReadCoils) => {
 				println!("ReadCoils");
@@ -30,11 +32,10 @@ impl Server {
 				
 				let n_bytes = (quantity as f32 / 8_f32).ceil() as usize;
 				
-				let mut odat = Vec::with_capacity(64);
 				odat.push(n_bytes as u8);
 				pack_bits(&self.coils[offset..offset + quantity], &mut odat);
 				
-				return Ok(odat)
+				return Ok(odat);
 			},
 			
 			Some(MbFunc::ReadDiscreteInputs) => {
@@ -49,11 +50,10 @@ impl Server {
 				
 				let n_bytes = (quantity as f32 / 8_f32).ceil() as usize;
 				
-				let mut odat = Vec::with_capacity(64);
 				odat.push(n_bytes as u8);
 				pack_bits(&self.discrete_input[offset..offset + quantity], &mut odat);
 				
-				return Ok(odat)
+				return Ok(odat);
 			},
 			
 			Some(MbFunc::ReadHoldingRegisters) => {
@@ -67,7 +67,6 @@ impl Server {
 				if quantity == 0 || quantity > 125 { return Err(MbExcWithMessage::new(MbExc::IllegalDataValue, STR_INVALID_QUANTITY.into())); }
 				if offset + quantity >= N_HOLDING_REGISTERS { return Err(MbExcWithMessage::new(MbExc::IllegalDataAddress, STR_INDEX_OUT.into())); }
 				
-				let mut odat = Vec::with_capacity(64);
 				odat.push(byte_count as u8);
 				let tlen = odat.len();
 				odat.resize(tlen + byte_count, 0);
@@ -75,7 +74,7 @@ impl Server {
 					&self.holding_registers[offset..offset + quantity],
 					&mut odat[tlen..]
 				);
-				return Ok(odat)
+				return Ok(odat);
 			},
 
 			Some(MbFunc::ReadInputRegisters) => {
@@ -89,7 +88,6 @@ impl Server {
 				if quantity == 0 || quantity > 125 { return Err(MbExcWithMessage::new(MbExc::IllegalDataValue, STR_INVALID_QUANTITY.into())); }
 				if offset + quantity >= N_INPUT_REGISTERS { return Err(MbExcWithMessage::new(MbExc::IllegalDataAddress, STR_INDEX_OUT.into())); }
 				
-				let mut odat = Vec::with_capacity(64);
 				odat.push(byte_count as u8);
 				let tlen = odat.len();
 				odat.resize(tlen + byte_count, 0);
@@ -97,26 +95,42 @@ impl Server {
 					&self.input_registers[offset..offset + quantity],
 					&mut odat[tlen..]
 				);
-				return Ok(odat)
+				return Ok(odat);
 			},
 
 			Some(MbFunc::WriteSingleCoil) => {
-				println!("WriteMultipleRegisters");
+				println!("WriteSingleCoil");
 				let offset = BigEndian::read_u16(&self.query[2..4]) as usize;
-				let value = BigEndian::read_u16(&self.query[4..6]) as usize;
+				let value = BigEndian::read_u16(&self.query[4..6]);
 				dbg!(offset);
 				dbg!(value);
 
 				if offset >= N_COILS { return Err(MbExcWithMessage::new(MbExc::IllegalDataAddress, STR_INDEX_OUT.into())); }
 				if value != 0x0000 && value != 0xFF00 { return Err(MbExcWithMessage::new(MbExc::IllegalDataValue, "Недействительное значение coil".into())); }
-				
-				let mut odat = Vec::with_capacity(64);
-				let coil_output_value: u16 = if self.coils[offset] == 0 { 0x0000 } else { 0xFF00 };
+
+				self.coils[offset] = if value == 0 { 0 } else { 1 };
 				odat.extend(&(offset as u16).to_be_bytes());
-				odat.extend(&coil_output_value.to_be_bytes());
-				return Ok(odat)
+				odat.extend(&(value).to_be_bytes());
+				return Ok(odat);
 			},
 
+			Some(MbFunc::WriteSingleRegister) => {
+				println!("WriteSingleRegister");
+				let offset = BigEndian::read_u16(&self.query[2..4]) as usize;
+				let value = BigEndian::read_u16(&self.query[4..6]);
+				dbg!(offset);
+				dbg!(value);
+
+				if offset >= N_HOLDING_REGISTERS { return Err(MbExcWithMessage::new(MbExc::IllegalDataAddress, STR_INDEX_OUT.into())); }
+
+				self.holding_registers[offset] = value;
+				odat.extend(&(offset as u16).to_be_bytes());
+				odat.extend(&(value as u16).to_be_bytes());
+				return Ok(odat);
+			},
+
+			// TODO write multiple coils
+			
 			Some(MbFunc::WriteMultipleRegisters) => {
 				println!("WriteMultipleRegisters");
 				let offset    = BigEndian::read_u16(&self.query[2..4]) as usize;
@@ -129,17 +143,16 @@ impl Server {
 				if byte_count != quantity * 2 { return Err(MbExcWithMessage::new(MbExc::IllegalDataValue, STR_INVALID_BYTE_COUNT.into())); }
 				if offset + quantity >= N_HOLDING_REGISTERS { return Err(MbExcWithMessage::new(MbExc::IllegalDataAddress, STR_INDEX_OUT.into())); }
 				
-				let mut odat = Vec::with_capacity(64);
 				odat.extend(&(offset as u16).to_be_bytes());
 				odat.extend(&(quantity as u16).to_be_bytes());
 				BigEndian::read_u16_into(
 					&self.query[7..7 + byte_count],
 					&mut self.holding_registers[offset..offset + quantity]
 				);
-				return Ok(odat)
+				return Ok(odat);
 			},
 
-			None => { Err(MbExcWithMessage::new(MbExc::IllegalFunction, STR_ILLEGAL_FUNCTION.into())) }
+			None => Err(MbExcWithMessage::new(MbExc::IllegalFunction, STR_ILLEGAL_FUNCTION.into())),
 			
 		} // End match
 	} // End fn

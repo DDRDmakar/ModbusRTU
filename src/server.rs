@@ -99,6 +99,7 @@ impl Server {
 							match self.get_query_len() {
 								Ok(l) => self.query_len = l,
 								Err(e) => {
+									println!("RX {:02X?}", &self.query[..self.pos]);
 									self.handle_exc(e, slave_id, function);
 									self.add_crc_and_flush()?;
 									self.pos = 0;

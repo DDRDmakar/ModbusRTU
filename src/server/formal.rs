@@ -41,6 +41,18 @@ pub fn pack_bits(src: &[u8], dst: &mut Vec<u8>) {
 	if src.len() % 8 != 0 { dst.push(val); }
 }
 
+// Распаковка битов, принятых через Modbus, в массив байтов
+pub fn unpack_bits(src: &[u8], dst: &mut Vec<u8>) {
+	for e in src.iter() {
+		let mut mask = 0x80;
+		for _ in 0..8 {
+			let val = if e & mask == 0 { 0 } else { 1 };
+			dst.push(val);
+			mask >>= 1;
+		}
+	}
+}
+
 // Modbus function codes
 #[derive(FromPrimitive)]
 pub enum MbFunc {
@@ -49,6 +61,7 @@ pub enum MbFunc {
 	ReadHoldingRegisters   = 0x03,
 	ReadInputRegisters     = 0x04,
 	WriteSingleCoil        = 0x05,
+	WriteSingleRegister    = 0x06,
 	WriteMultipleRegisters = 0x10,
 }
 
@@ -96,7 +109,7 @@ pub const QUERY_LEN: [usize; 0x30] = [
 	5, // 0x03 Read holding registers
 	5, // 0x04 Read input registers
 	5, // 0x05 Write single coil
-	0, // 0x06
+	5, // 0x06 Write single register
 	0, // 0x07
 	0, // 0x08
 	0, // 0x09
