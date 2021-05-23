@@ -20,6 +20,7 @@ use crate::server::formal::*;
 mod process;
 
 pub struct Server {
+	slave_id:          u8,
 	port:              Box<dyn SerialPort>,
 	discrete_input:    Vec<u8>,
 	coils:             Vec<u8>,
@@ -39,7 +40,7 @@ pub const N_HOLDING_REGISTERS: usize = 1024;
 pub const IN_BUF_SIZE:         usize = 256;
 
 impl Server {
-	pub fn new(p: Box<dyn SerialPort>) -> Server {
+	pub fn new(p: Box<dyn SerialPort>, slave_id: u8) -> Server {
 		let us_per_bit = 1000000f32 / p.baud_rate().unwrap() as f32;
 		let n_parity_bits = match p.parity().unwrap() {
 			Parity::None => 0,
@@ -57,6 +58,7 @@ impl Server {
 		dbg!(us_per_symbol);
 		
 		Server {
+			slave_id:          slave_id,
 			discrete_input:    vec![0; N_DISCRETE_INPUTS],
 			coils:             vec![0; N_COILS],
 			input_registers:   vec![0; N_INPUT_REGISTERS],
@@ -72,7 +74,12 @@ impl Server {
 
 	#[allow(unreachable_code)]
 	pub fn start(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+
 		loop {
+			if self.pos == 0 {
+				self.query_len = usize::MAX;
+				self.obuf.clear();
+			}
 			let pos_read_to = if self.query_len == usize::MAX { self.pos + 1 } else { self.query_len };
 			match self.port.read(&mut self.query[self.pos..pos_read_to]) {
 				Err(e) => {
@@ -83,16 +90,20 @@ impl Server {
 				},
 				Ok(n) => {
 					println!("{} байт получено", n);
-					if self.pos == 0 {
-						self.query_len = usize::MAX;
-						self.obuf.clear();
-					}
+					
 					self.pos += n;
 					if self.pos >= 2 {
 						let slave_id = self.query[0];
 						let function = self.query[1];
 						dbg!(slave_id);
 						dbg!(function);
+
+						// Сравнение slave id
+						if self.slave_id != slave_id {
+							println!("Slave id не совпадает");
+							self.pos = 0;
+							continue;
+						}
 
 						// Определение длины сообщения
 						if self.query_len == usize::MAX {
@@ -162,11 +173,16 @@ impl Server {
 							if self.pos > 6 { Ok((self.query[6] + 6 + 1 + 2) as usize) }
 							else { Ok(usize::MAX) }
 						},
+						Some(MbFunc::WriteMultipleCoils) => {
+							if self.pos > 6 { Ok((self.query[6] + 6 + 1 + 2) as usize) }
+							else { Ok(usize::MAX) }
+						}
 						Some(_) => Err(MbExcWithMessage::new(MbExc::SlaveDeviceFailure, "Попытка вычислить длину сообщения со статической длиной".into())),
 						
 						None => Err(MbExcWithMessage::new(MbExc::IllegalFunction, STR_ILLEGAL_FUNCTION.into())),
 					};
 					match answer {
+						Ok(usize::MAX) => answer,
 						Ok(l) => {
 							if l > IN_BUF_SIZE { Err(MbExcWithMessage::new(MbExc::SlaveDeviceFailure, "Вычислена неверная длина пакета".into())) }
 							else { answer }

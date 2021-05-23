@@ -42,13 +42,16 @@ pub fn pack_bits(src: &[u8], dst: &mut Vec<u8>) {
 }
 
 // Распаковка битов, принятых через Modbus, в массив байтов
-pub fn unpack_bits(src: &[u8], dst: &mut Vec<u8>) {
+pub fn unpack_bits(src: &[u8], dst: &mut [u8]) {
+	let mut counter: usize = 0;
 	for e in src.iter() {
-		let mut mask = 0x80;
+		let mut mask = 0x01;
 		for _ in 0..8 {
+			if counter == dst.len() { break; }
 			let val = if e & mask == 0 { 0 } else { 1 };
-			dst.push(val);
-			mask >>= 1;
+			dst[counter] = val;
+			mask <<= 1;
+			counter += 1;
 		}
 	}
 }
@@ -62,6 +65,7 @@ pub enum MbFunc {
 	ReadInputRegisters     = 0x04,
 	WriteSingleCoil        = 0x05,
 	WriteSingleRegister    = 0x06,
+	WriteMultipleCoils     = 0x0F,
 	WriteMultipleRegisters = 0x10,
 }
 
@@ -118,7 +122,7 @@ pub const QUERY_LEN: [usize; 0x30] = [
 	0, // 0x0C
 	0, // 0x0D
 	0, // 0x0E
-	0, // 0x0F
+	usize::MAX, // 0x0F Write multiple coils
 	usize::MAX, // 0x10 Write multiple registers
 	0, // 0x11
 	0, // 0x12

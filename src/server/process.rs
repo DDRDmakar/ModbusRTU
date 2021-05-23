@@ -129,7 +129,24 @@ impl Server {
 				return Ok(odat);
 			},
 
-			// TODO write multiple coils
+			Some(MbFunc::WriteMultipleCoils) => {
+				println!("WriteMultipleCoils");
+				let offset    = BigEndian::read_u16(&self.query[2..4]) as usize;
+				let quantity  = BigEndian::read_u16(&self.query[4..6]) as usize;
+				dbg!(offset);
+				dbg!(quantity);
+				let byte_count = self.query[6] as usize;
+				let byte_count_from_quantity = (quantity as f32 / 8_f32).ceil() as usize;
+				
+				if quantity == 0 || quantity > 0x07B0 { return Err(MbExcWithMessage::new(MbExc::IllegalDataValue, STR_INVALID_QUANTITY.into())); }
+				if byte_count != byte_count_from_quantity { return Err(MbExcWithMessage::new(MbExc::IllegalDataValue, STR_INVALID_BYTE_COUNT.into())); }
+				if offset + quantity >= N_COILS { return Err(MbExcWithMessage::new(MbExc::IllegalDataAddress, STR_INDEX_OUT.into())); }
+
+				unpack_bits(&self.query[7..7+byte_count], &mut self.coils[offset..offset+quantity]);
+				odat.extend(&(offset as u16).to_be_bytes());
+				odat.extend(&(quantity as u16).to_be_bytes());
+				return Ok(odat);
+			},
 			
 			Some(MbFunc::WriteMultipleRegisters) => {
 				println!("WriteMultipleRegisters");
@@ -139,7 +156,7 @@ impl Server {
 				dbg!(quantity);
 				let byte_count = self.query[6] as usize;
 
-				if quantity == 0 || quantity > 123 { return Err(MbExcWithMessage::new(MbExc::IllegalDataValue, STR_INVALID_QUANTITY.into())); }
+				if quantity == 0 || quantity > 0x007B { return Err(MbExcWithMessage::new(MbExc::IllegalDataValue, STR_INVALID_QUANTITY.into())); }
 				if byte_count != quantity * 2 { return Err(MbExcWithMessage::new(MbExc::IllegalDataValue, STR_INVALID_BYTE_COUNT.into())); }
 				if offset + quantity >= N_HOLDING_REGISTERS { return Err(MbExcWithMessage::new(MbExc::IllegalDataAddress, STR_INDEX_OUT.into())); }
 				

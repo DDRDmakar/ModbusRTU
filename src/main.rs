@@ -24,17 +24,20 @@ struct Opt {
 	/// Input file
 	#[structopt(parse(from_os_str), default_value="")]
 	ifile: PathBuf,
+	/// Slave id
+	#[structopt(short, long, default_value="1")]
+	slave_id: u8,
 	/// Serial port name
 	#[structopt(short, long)]
 	port: String,
 	/// Baud rate
-	#[structopt(short, long, default_value = "9600")]
+	#[structopt(short, long, default_value="9600")]
 	baudrate: u32,
 	/// Serial port parity
-	#[structopt(short = "a", long, default_value = "even")]
+	#[structopt(short="a", long, default_value="even")]
 	parity: String,
 	/// Timeout in ms
-	#[structopt(short, long, default_value = "1000")]
+	#[structopt(short, long, default_value="1000")]
 	timeout: u64,
 }
 
@@ -71,7 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>>  {
 
 	display_port_settings(&port);
 
-	let mut server = server::Server::new(port);
+	let mut server = server::Server::new(port, opt.slave_id);
 	server.start()?;
 	
 	Ok(())
